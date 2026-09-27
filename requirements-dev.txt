@@ -1,0 +1,2 @@
+-r requirements.txt
+sqlfluff==3.5.0

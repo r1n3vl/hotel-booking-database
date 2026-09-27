@@ -1,0 +1,45 @@
+name: SQL Server checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - name: Parse SQL and test the runner
+        run: |
+          python tools/check_sql.py
+          python -m unittest tests.test_unit -v
+      - name: Create disposable local credentials
+        run: |
+          python - <<'PY'
+          import secrets
+          from pathlib import Path
+          password = 'CI_Local_' + secrets.token_hex(20) + '!aA1'
+          Path('.env').write_text('MSSQL_SA_PASSWORD=' + password + '\n')
+          PY
+      - name: Start SQL Server 2022
+        run: docker compose up -d --wait --wait-timeout 180
+      - name: Test actual SQL Server behavior
+        run: python -m unittest tests.test_integration -v
+      - name: Smoke-test the documented installation
+        run: |
+          python tools/manage.py init --database HotelBooking --seed
+          python tools/manage.py status
+          python tools/manage.py report
+      - name: Server logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Remove disposable containers and volumes
+        if: always()
+        run: docker compose down -v
